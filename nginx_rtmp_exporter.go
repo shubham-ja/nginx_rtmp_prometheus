@@ -69,11 +69,13 @@ var (
 		"uptime":         newServerMetric("uptime_seconds_total", "Number of seconds NGINX-RTMP started", nil, nil),
 	}
 	streamMetrics = metrics{
-		"bytesIn":      newStreamMetric("incoming_bytes_total", "Current total of incoming bytes", []string{"stream"}, nil),
-		"bytesOut":     newStreamMetric("outgoing_bytes_total", "Current total of outgoing bytes", []string{"stream"}, nil),
-		"bandwidthIn":  newStreamMetric("receive_bytes", "Current bandwidth in per second", []string{"stream"}, nil),
-		"bandwidthOut": newStreamMetric("transmit_bytes", "Current bandwidth out per second", []string{"stream"}, nil),
-		"uptime":       newStreamMetric("uptime_seconds_total", "Number of seconds since the stream started", []string{"stream"}, nil),
+		"bytesIn":        newStreamMetric("incoming_bytes_total", "Current total of incoming bytes", []string{"stream"}, nil),
+		"bytesOut":       newStreamMetric("outgoing_bytes_total", "Current total of outgoing bytes", []string{"stream"}, nil),
+		"bandwidthIn":    newStreamMetric("receive_bytes", "Current bandwidth in per second", []string{"stream"}, nil),
+		"bandwidthOut":   newStreamMetric("transmit_bytes", "Current bandwidth out per second", []string{"stream"}, nil),
+		"uptime":         newStreamMetric("uptime_seconds_total", "Number of seconds since the stream started", []string{"stream"}, nil),
+		"audioBandwidth": newStreamMetric("audio_bandwidth", "Current audio bandwidth per second", []string{"stream"}, nil),
+		"videoBandwidth": newStreamMetric("video_bandwidth", "Current video bandwidth per second", []string{"stream"}, nil),
 	}
 )
 
@@ -101,12 +103,14 @@ type ServerInfo struct {
 
 // StreamInfo characteristics of a stream
 type StreamInfo struct {
-	Name        string
-	BytesIn     float64
-	BytesOut    float64
-	BandwidthIn float64
-	BandwidhOut float64
-	Uptime      float64
+	Name           string
+	BytesIn        float64
+	BytesOut       float64
+	BandwidthIn    float64
+	BandwidhOut    float64
+	Uptime         float64
+	AudioBandwidth float64
+	VideoBandwidth float64
 }
 
 // NewServerInfo builds a ServerInfo struct from string values
@@ -137,8 +141,8 @@ func NewServerInfo(bytesIn, bytesOut, bandwidthIn, bandwidthOut, uptime string) 
 }
 
 // NewStreamInfo builds a StreamInfo struct from string values
-func NewStreamInfo(name, bytesIn, bytesOut, bandwidthIn, bandwidthOut, uptime string) StreamInfo {
-	var bytesInNum, bytesOutNum, bandwidthInNum, bandwidthOutNum, uptimeNum float64
+func NewStreamInfo(name, bytesIn, bytesOut, bandwidthIn, bandwidthOut, uptime, audioBandwidth, videoBandwidth string) StreamInfo {
+	var bytesInNum, bytesOutNum, bandwidthInNum, bandwidthOutNum, uptimeNum, audioBandwidthNum, videoBandwidthNum float64
 	if n, err := strconv.ParseFloat(bytesIn, 64); err == nil {
 		bytesInNum = n
 	}
@@ -154,13 +158,24 @@ func NewStreamInfo(name, bytesIn, bytesOut, bandwidthIn, bandwidthOut, uptime st
 	if n, err := strconv.ParseFloat(uptime, 64); err == nil {
 		uptimeNum = n / 1000 // it is in miliseconds
 	}
+
+	if n, err := strconv.ParseFloat(audioBandwidth, 64); err == nil {
+		audioBandwidthNum = n
+	}
+
+	if n, err := strconv.ParseFloat(videoBandwidth, 64); err == nil {
+		videoBandwidthNum = n
+	}
+
 	return StreamInfo{
-		Name:        name,
-		BytesIn:     bytesInNum,
-		BytesOut:    bytesOutNum,
-		BandwidthIn: bandwidthInNum,
-		BandwidhOut: bandwidthOutNum,
-		Uptime:      uptimeNum,
+		Name:           name,
+		BytesIn:        bytesInNum,
+		BytesOut:       bytesOutNum,
+		BandwidthIn:    bandwidthInNum,
+		BandwidhOut:    bandwidthOutNum,
+		Uptime:         uptimeNum,
+		AudioBandwidth: audioBandwidthNum,
+		VideoBandwidth: videoBandwidthNum,
 	}
 }
 
@@ -233,7 +248,10 @@ func parseStreamsStats(doc *xmlquery.Node, streamNameNormalizer *regexp.Regexp) 
 		receiveBytes := stream.SelectElement("bw_in").InnerText()
 		transmitBytes := stream.SelectElement("bw_out").InnerText()
 		uptime := stream.SelectElement("time").InnerText()
-		streams = append(streams, NewStreamInfo(app+name, bytesIn, bytesOut, receiveBytes, transmitBytes, uptime))
+		audioBandwidth := stream.SelectElement("bw_audio").InnerText()
+		videoBandwidth := stream.SelectElement("bw_video").InnerText()
+
+		streams = append(streams, NewStreamInfo(app+name, bytesIn, bytesOut, receiveBytes, transmitBytes, uptime, audioBandwidth, videoBandwidth))
 	}
 	return streams, nil
 }
@@ -274,6 +292,8 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(e.streamMetrics["bandwidthIn"], prometheus.GaugeValue, stream.BandwidthIn, stream.Name)
 		ch <- prometheus.MustNewConstMetric(e.streamMetrics["bandwidthOut"], prometheus.GaugeValue, stream.BandwidhOut, stream.Name)
 		ch <- prometheus.MustNewConstMetric(e.streamMetrics["uptime"], prometheus.CounterValue, stream.Uptime, stream.Name)
+		ch <- prometheus.MustNewConstMetric(e.streamMetrics["audioBandwidth"], prometheus.CounterValue, stream.AudioBandwidth, stream.Name)
+		ch <- prometheus.MustNewConstMetric(e.streamMetrics["videoBandwidth"], prometheus.CounterValue, stream.VideoBandwidth, stream.Name)
 	}
 
 	ch <- prometheus.MustNewConstMetric(e.serverMetrics["currentStreams"], prometheus.GaugeValue, float64(len(streams)))
